@@ -1,56 +1,97 @@
 name: Release
 
-permissions:
-  contents: write
-
 on:
   push:
     tags:
-      - v[0-9]+.*
+      - "v*"
+
+permissions:
+  contents: write
 
 env:
   RUSTFLAGS: -D warnings --cfg tokio_unstable
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: taiki-e/create-gh-release-action@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  upload-assets:
+  build:
     strategy:
+      fail-fast: false
       matrix:
         include:
+          - runner: blacksmith-32vcpu-ubuntu-2204
+            target: x86_64-unknown-linux-gnu
           - target: aarch64-apple-darwin
-            os: macos-latest
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            runner: macos-26-arm64
+          - target: x86_64-apple-darwin
+            runner: macos-26
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-    runs-on: ${{ matrix.os }}
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
+            runner: blacksmith-32vcpu-ubuntu-2204-arm
+            # Set jemalloc page size to 16K (2^14) for ARM64 Linux targets.
+            # This ensures compatibility with systems using 16K pages like Raspberry Pi OS on RPi 5.
+            # Without this configuration, the binary may fail with "<jemalloc>: Unsupported system page size".
+            jemalloc_page_size: 14
+    runs-on: ${{ matrix.runner }}
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: rui314/setup-mold@v1
-
-      - uses: taiki-e/setup-cross-toolchain-action@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          target: ${{ matrix.target }}
-        if: startsWith(matrix.os, 'ubuntu')
+          targets: ${{ matrix.target }}
 
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Ensure Rust target is installed
+        shell: bash
+        run: rustup target add "${{ matrix.target }}"
 
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - name: Configure jemalloc page size for the build
+        if: matrix.jemalloc_page_size != null
+        run: echo "JEMALLOC_SYS_WITH_LG_PAGE=${{ matrix.jemalloc_page_size }}" >> $GITHUB_ENV
+
+      - name: Build corrosion
+        shell: bash
+        run: cargo build --release --locked --target "${{ matrix.target }}" --bin corrosion
+
+      - name: Package tarball
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/corrosion" dist/corrosion
+          chmod 0755 dist/corrosion
+          tar -C dist -czf "dist/corrosion-${{ matrix.target }}.tar.gz" corrosion
+
+      - uses: actions/upload-artifact@v4
         with:
-          bin: corrosion
-          archive: "corrosion-$target"
-          target: ${{ matrix.target }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: corrosion-${{ matrix.target }}
+          path: dist/corrosion-${{ matrix.target }}.tar.gz
+
+  release:
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    needs: build
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifacts
+        shell: bash
+        run: |
+          shopt -s nullglob
+          mkdir -p out
+          for f in dist/*/*.tar.gz; do
+            mv "$f" out/
+          done
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd out
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag --notes ""
+          gh release upload "$GITHUB_REF_NAME" out/*.tar.gz out/checksums.txt --clobber

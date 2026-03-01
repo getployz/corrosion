@@ -116,9 +116,9 @@ jobs:
       - name: Extract binaries
         shell: bash
         run: |
-          mkdir -p build/linux-amd64 build/linux-arm64
-          tar -xzf dist/corrosion-x86_64-unknown-linux-gnu/corrosion-x86_64-unknown-linux-gnu.tar.gz -C build/linux-amd64
-          tar -xzf dist/corrosion-aarch64-unknown-linux-gnu/corrosion-aarch64-unknown-linux-gnu.tar.gz -C build/linux-arm64
+          mkdir -p build/linux/amd64 build/linux/arm64
+          tar -xzf dist/corrosion-x86_64-unknown-linux-gnu/corrosion-x86_64-unknown-linux-gnu.tar.gz -C build/linux/amd64
+          tar -xzf dist/corrosion-aarch64-unknown-linux-gnu/corrosion-aarch64-unknown-linux-gnu.tar.gz -C build/linux/arm64
 
       - uses: docker/setup-qemu-action@v3
 

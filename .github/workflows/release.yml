@@ -57,6 +57,7 @@ jobs:
         run: |
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/corrosion" dist/corrosion
+          strip dist/corrosion
           chmod 0755 dist/corrosion
           tar -C dist -czf "dist/corrosion-${{ matrix.target }}.tar.gz" corrosion
 

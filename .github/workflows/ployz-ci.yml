@@ -1,0 +1,45 @@
+# Ployz fork: Corrosion's own tests and lints on PRs into `ployz`. Pushes to `ployz` run it
+# through ployz-image, and the weekly rebase through ployz-rebase.
+name: Ployz CI
+
+on:
+  pull_request:
+    branches: [ployz]
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+
+env:
+  RUSTFLAGS: --cfg tokio_unstable
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: rui314/setup-mold@v1
+      - run: rustup show
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - run: cargo nextest run --profile ci --workspace
+
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: rui314/setup-mold@v1
+      - run: rustup component add clippy rustfmt
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo fmt -- --check

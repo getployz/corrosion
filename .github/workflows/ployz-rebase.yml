@@ -1,0 +1,78 @@
+# Ployz fork: weekly, replay the `ployz` patches onto upstream superfly/corrosion `main`.
+# Clean and green: move `ployz` and publish an image. Tests fail: open a PR with the rebased
+# branch. Rebase conflicts: open an issue naming the patch that no longer applies.
+name: Ployz rebase on upstream
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  rebase:
+    runs-on: ubuntu-24.04
+    outputs:
+      branch: ${{ steps.rebase.outputs.branch }}
+      changed: ${{ steps.rebase.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ployz
+          fetch-depth: 0
+      - id: rebase
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch https://github.com/superfly/corrosion main
+          upstream=$(git rev-parse FETCH_HEAD)
+          if git merge-base --is-ancestor "$upstream" HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          branch="upstream-sync/$(date -u +%Y%m%d)-${upstream:0:12}"
+          if ! git rebase "$upstream"; then
+            stopped=$(git log -1 --format='%h %s' REBASE_HEAD 2>/dev/null || echo unknown)
+            git rebase --abort
+            gh issue create --title "Ployz patches conflict with upstream ${upstream:0:12}" --body \
+              "The weekly rebase of \`ployz\` onto superfly/corrosion@$upstream stopped at: $stopped. Rebase by hand, keeping each patch one commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git push origin "HEAD:refs/heads/$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: rebase
+    if: needs.rebase.outputs.changed == 'true'
+    uses: ./.github/workflows/ployz-ci.yml
+    with:
+      ref: ${{ needs.rebase.outputs.branch }}
+
+  promote:
+    needs: [rebase, ci]
+    if: always() && needs.rebase.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ needs.rebase.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.rebase.outputs.branch }}
+          fetch-depth: 0
+      - if: needs.ci.result == 'success'
+        run: |
+          git push --force-with-lease=ployz:origin/ployz origin "HEAD:refs/heads/ployz"
+          git push origin --delete "$BRANCH"
+          gh workflow run ployz-image.yml --ref ployz
+      - if: needs.ci.result != 'success'
+        run: |
+          gh pr create --base ployz --head "$BRANCH" --title "Rebase onto upstream: tests fail ($BRANCH)" --body \
+            "The weekly rebase onto superfly/corrosion applied cleanly, but Ployz CI failed on it: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Fix on this branch, then fast-forward \`ployz\`."

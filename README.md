@@ -1,3 +1,14 @@
+> [!NOTE]
+> **getployz/corrosion** is Ployz's build of [superfly/corrosion](https://github.com/superfly/corrosion).
+> The `ployz` branch is upstream `main` plus the patches below, one commit each, rebased weekly.
+> Each patch is meant to go upstream, and leaves this list once upstream has it.
+> Images: `ghcr.io/getployz/corrosion:<commit date>-<sha12>`, built from `ployz/Dockerfile`.
+>
+> | Patch | Why | Upstream |
+> |---|---|---|
+> | Forget a dropped batch in the seen cache so sync can redeliver it | A batch that fails (e.g. write-permit timeout) stays in `seen`, so its partial versions never fill until restart ([getployz/ployz#3199](https://github.com/getployz/ployz/issues/3199)) | [#577](https://github.com/superfly/corrosion/issues/577), PR [#594](https://github.com/superfly/corrosion/pull/594) |
+> | Build files: `ployz/Dockerfile`, `.github/workflows/ployz-*.yml`, this note | Image publishing and the weekly rebase. The arm64 image sets `JEMALLOC_SYS_WITH_LG_PAGE=14` for 16K-page kernels | not for upstream |
+
 # Corrosion
 Gossip-based service discovery (and more) for large distributed systems.
 

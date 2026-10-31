@@ -39,7 +39,7 @@ use crate::{
     },
     channel::{bounded, CorroSender},
     compress::ZstdDicts,
-    config::{BroadcastMethod, Config},
+    config::{BroadcastMethod, Config, Synchronous},
     metrics_tracker::MetricsTracker,
     pubsub::SubsManager,
     schema::Schema,
@@ -595,6 +595,7 @@ struct SplitPoolInner {
     path: PathBuf,
     write_sema: Arc<Semaphore>,
     cache_size_kib: i64,
+    synchronous: Synchronous,
 
     read: SqlitePool,
     write: SqlitePool,
@@ -681,10 +682,13 @@ impl SplitPool {
         path: P,
         write_sema: Arc<Semaphore>,
         cache_size_kib: i64,
+        synchronous: Synchronous,
     ) -> Result<Self, SplitPoolCreateError> {
         let rw_pool = sqlite_pool::Config::new(path.as_ref())
             .max_size(1)
-            .create_pool_transform(move |conn| rusqlite_to_crsqlite_write(conn, cache_size_kib))?;
+            .create_pool_transform(move |conn| {
+                rusqlite_to_crsqlite_write(conn, cache_size_kib, synchronous)
+            })?;
 
         debug!("built RW pool");
 
@@ -698,6 +702,7 @@ impl SplitPool {
             path.as_ref().to_owned(),
             write_sema,
             cache_size_kib,
+            synchronous,
             ro_pool,
             rw_pool,
         ))
@@ -707,6 +712,7 @@ impl SplitPool {
         path: PathBuf,
         write_sema: Arc<Semaphore>,
         cache_size_kib: i64,
+        synchronous: Synchronous,
         read: SqlitePool,
         write: SqlitePool,
     ) -> Self {
@@ -732,6 +738,7 @@ impl SplitPool {
             path,
             write_sema,
             cache_size_kib,
+            synchronous,
             read,
             write,
             priority_tx,
@@ -781,7 +788,7 @@ impl SplitPool {
     #[tracing::instrument(skip(self), level = "debug")]
     pub fn client_dedicated(&self) -> rusqlite::Result<CrConn> {
         let conn = rusqlite::Connection::open(&self.0.path)?;
-        let cr_conn = rusqlite_to_crsqlite_write(conn, self.0.cache_size_kib)?;
+        let cr_conn = rusqlite_to_crsqlite_write(conn, self.0.cache_size_kib, self.0.synchronous)?;
         trace_heavy_queries(cr_conn.conn())?;
         Ok(cr_conn)
     }

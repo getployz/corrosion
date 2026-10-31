@@ -1710,7 +1710,8 @@ mod tests {
 
         println!("temp db: {db_path:?}");
         let write_sema = Arc::new(Semaphore::new(1));
-        let pool = SplitPool::create(db_path, write_sema.clone(), -1048576).await?;
+        let pool =
+            SplitPool::create(db_path, write_sema.clone(), -1048576, Default::default()).await?;
 
         {
             let mut conn = pool.write_priority().await?;

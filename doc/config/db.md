@@ -47,3 +47,14 @@ Larger values can improve write performance noticeably under heavy ingest, at th
 [db]
 cache_size_kib = -1048576  # 1 GiB
 ```
+
+#### `db.synchronous`
+
+SQLite's [`PRAGMA synchronous`](https://www.sqlite.org/pragma.html#pragma_synchronous) for write connections: `"normal"` or `"full"`.
+
+Defaults to `"normal"`, which syncs the WAL only at checkpoints. A power loss can then drop the last commits, after Corrosion has already broadcast them. `"full"` syncs the WAL at every commit, so a commit is durable before it is broadcast, at the cost of one sync per commit.
+
+```toml
+[db]
+synchronous = "full"
+```

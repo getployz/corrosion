@@ -162,6 +162,29 @@ pub struct DbConfig {
     /// WARNING: Setting this too low (<100MB) can severely degrade performance.
     #[serde(default = "default_cache_size_kib")]
     pub cache_size_kib: i64,
+    /// SQLite `PRAGMA synchronous` for write connections. Default: normal.
+    #[serde(default)]
+    pub synchronous: Synchronous,
+}
+
+/// How write connections sync the WAL. `Full` syncs it at every commit, so a
+/// commit survives power loss before it is broadcast; `Normal` syncs only at
+/// checkpoints, so the last commits can be lost to power loss.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Synchronous {
+    #[default]
+    Normal,
+    Full,
+}
+
+impl Synchronous {
+    pub fn pragma(self) -> &'static str {
+        match self {
+            Synchronous::Normal => "NORMAL",
+            Synchronous::Full => "FULL",
+        }
+    }
 }
 
 impl DbConfig {
@@ -814,6 +837,7 @@ impl ConfigBuilder {
                 schema_paths: self.schema_paths,
                 subscriptions_path: None,
                 cache_size_kib: default_cache_size_kib(),
+                synchronous: Synchronous::default(),
             },
             api: ApiConfig {
                 bind_addr: self.api_addr,
@@ -1043,5 +1067,28 @@ mod tests {
         };
         assert!(ratios.validate().is_err());
         assert!(plum_foca::EagerRatios::default().validate().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod db_config_tests {
+    use super::*;
+
+    fn parse(toml: &str) -> DbConfig {
+        config::Config::builder()
+            .add_source(config::File::from_str(toml, config::FileFormat::Toml))
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap()
+    }
+
+    #[test]
+    fn synchronous_defaults_to_normal_and_reads_full() {
+        assert_eq!(parse(r#"path = "/db""#).synchronous, Synchronous::Normal);
+        assert_eq!(
+            parse("path = \"/db\"\nsynchronous = \"full\"").synchronous,
+            Synchronous::Full
+        );
     }
 }

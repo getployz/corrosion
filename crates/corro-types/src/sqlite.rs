@@ -19,6 +19,7 @@ use thread_local::ThreadLocal;
 use tracing::{error, info, trace, warn};
 use tripwire::Tripwire;
 
+use crate::config::Synchronous;
 use crate::vtab::unnest::UnnestTab;
 
 pub type SqlitePool = sqlite_pool::Pool<CrConn>;
@@ -366,6 +367,7 @@ static CRSQL_EXT_DIR: Lazy<TempDir> = Lazy::new(|| {
 pub fn rusqlite_to_crsqlite_write(
     conn: rusqlite::Connection,
     cache_size_kib: i64,
+    synchronous: Synchronous,
 ) -> rusqlite::Result<CrConn> {
     let conn = rusqlite_to_crsqlite(conn)?;
     conn.execute_batch(&format!(
@@ -373,8 +375,10 @@ pub fn rusqlite_to_crsqlite_write(
         PRAGMA cache_size = {};
         PRAGMA temp_store = MEMORY;
         PRAGMA cache_spill = FALSE;
+        PRAGMA synchronous = {};
         ",
-        cache_size_kib
+        cache_size_kib,
+        synchronous.pragma()
     ))?;
 
     Ok(conn)
@@ -564,6 +568,19 @@ mod tests {
     use tokio::task::block_in_place;
 
     use super::*;
+
+    #[test]
+    fn write_connections_use_the_configured_synchronous() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let tmpdir = tempfile::TempDir::new()?;
+        for (synchronous, expected) in [(Synchronous::Normal, 1), (Synchronous::Full, 2)] {
+            let conn = Connection::open(tmpdir.path().join("test.db"))?;
+            let conn = rusqlite_to_crsqlite_write(conn, -1048576, synchronous)?;
+            let actual: i64 = conn.query_row("PRAGMA synchronous", [], |row| row.get(0))?;
+            assert_eq!(actual, expected, "{synchronous:?}");
+        }
+        Ok(())
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_writes() -> Result<(), Box<dyn std::error::Error>> {

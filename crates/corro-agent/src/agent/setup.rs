@@ -100,7 +100,13 @@ pub async fn setup(conf: Config, tripwire: Tripwire) -> eyre::Result<(Agent, Age
 
     let write_sema = Arc::new(Semaphore::new(1));
 
-    let pool = SplitPool::create(&conf.db.path, write_sema.clone(), conf.db.cache_size_kib).await?;
+    let pool = SplitPool::create(
+        &conf.db.path,
+        write_sema.clone(),
+        conf.db.cache_size_kib,
+        conf.db.synchronous,
+    )
+    .await?;
 
     let clock = Arc::new(
         uhlc::HLCBuilder::default()

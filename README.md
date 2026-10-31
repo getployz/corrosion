@@ -7,6 +7,7 @@
 > | Patch | Why | Upstream |
 > |---|---|---|
 > | Forget a dropped batch in the seen cache so sync can redeliver it | A batch that fails (e.g. write-permit timeout) stays in `seen`, so its partial versions never fill until restart ([getployz/ployz#3199](https://github.com/getployz/ployz/issues/3199)) | [#577](https://github.com/superfly/corrosion/issues/577), PR [#594](https://github.com/superfly/corrosion/pull/594) |
+> | Add `[db] synchronous` to choose how write connections sync the WAL | With the default `NORMAL`, a power loss drops commits Corrosion already broadcast, and peers never send a node its own changes back. `full` syncs each commit before broadcast, in one sync per commit rather than one per page as an inode sync flag does ([getployz/ployz#2925](https://github.com/getployz/ployz/issues/2925)) | not offered yet |
 > | Build files: `ployz/Dockerfile`, `.github/workflows/ployz-*.yml`, this note | Image publishing and the weekly rebase. The arm64 image sets `JEMALLOC_SYS_WITH_LG_PAGE=14` for 16K-page kernels | not for upstream |
 
 # Corrosion
